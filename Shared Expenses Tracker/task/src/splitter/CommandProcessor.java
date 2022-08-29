@@ -42,7 +42,7 @@ public class CommandProcessor {
                     date = LocalDate.parse(dateStr.replace('.', '-'));
                 } catch (DateTimeParseException ex) {
                     throw new IllegalArgumentException(
-                            String.format("Date parser error: %s - illegal date format.", dateStr)
+                            "Date parser error: " + dateStr + " - illegal date format."
                     );
                 }
             } else {
