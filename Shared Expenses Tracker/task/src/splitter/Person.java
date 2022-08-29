@@ -1,18 +1,6 @@
 package splitter;
 
-public class Person {
-
-    private String name;
-
-    public Person(String name) {
-        this.name = name;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-
+public record Person(String name) {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -23,8 +11,4 @@ public class Person {
         return name.equals(person.name);
     }
 
-    @Override
-    public int hashCode() {
-        return name.hashCode();
-    }
 }
