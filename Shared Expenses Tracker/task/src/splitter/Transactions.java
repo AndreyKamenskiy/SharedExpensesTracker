@@ -1,10 +1,7 @@
 package splitter;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class Transactions {
 
@@ -12,35 +9,10 @@ public class Transactions {
         OPEN, CLOSE
     }
 
-    //immutable class
-    public static class Payment {
-        private final LocalDate date;
-        private final Person from;
-        private final Person to;
-        private final int amount; // only positive
-
-        public Payment(LocalDate date, Person from, Person to, int amount) {
-            this.date = date;
-            this.from = from;
-            this.to = to;
-            this.amount = amount;
-        }
-
-        public LocalDate getDate() {
-            return date;
-        }
-
-        public Person getFrom() {
-            return from;
-        }
-
-        public Person getTo() {
-            return to;
-        }
-
-        public int getAmount() {
-            return amount;
-        }
+    /**
+     * @param amount only positive
+     */
+        public record Payment(LocalDate date, Person from, Person to, int amount) {
     }
 
     List<Payment> payments;
@@ -53,25 +25,24 @@ public class Transactions {
         payments.add(new Payment(date, from, to, amount));
     }
 
-    public List<Payment> getBalance(LocalDate date) {
-        return getBalance(date, BalanceType.CLOSE);
-    }
-
     public List<Payment> getBalance(LocalDate date, BalanceType type) {
         Map<Pair<Person>, Integer> relations = new HashMap<>();
         LocalDate endDate = date;
         if (type == BalanceType.CLOSE) {
             endDate = endDate.plusDays(1);
+        } else {
+            //openMonth balance
+            endDate = date.withDayOfMonth(1);
         }
         for (Payment payment : payments) {
-            if (!payment.getDate().isBefore(endDate)) {
+            if (!payment.date().isBefore(endDate)) {
                 continue;
             }
-            int amount = payment.getAmount();
-            Pair<Person> pair = new Pair<>(payment.getFrom(), payment.getTo());
+            int amount = payment.amount();
+            Pair<Person> pair = new Pair<>(payment.from(), payment.to());
             boolean foundPair = false;
             if (!relations.containsKey(pair)) {
-                Pair<Person> reversePair = new Pair<>(payment.getTo(), payment.getFrom());
+                Pair<Person> reversePair = new Pair<>(payment.to(), payment.from());
                 if (relations.containsKey(reversePair)) {
                     pair = reversePair;
                     amount = - amount;
@@ -91,8 +62,11 @@ public class Transactions {
         for (Map.Entry<Pair<Person>, Integer> p2p : relations.entrySet()) {
             balance.add(new Payment(null, p2p.getKey().getVal1(), p2p.getKey().getVal2(), p2p.getValue()));
         }
+        // not ordered balance;
         return balance;
     }
+
+
 
 }
 

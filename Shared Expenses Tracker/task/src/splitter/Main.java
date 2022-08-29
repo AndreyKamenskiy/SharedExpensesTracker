@@ -1,15 +1,17 @@
 package splitter;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.regex.Matcher;
 
 public class Main {
 
     public static final int ERROR_STATUS = 1;
+
+    private static final String CONSUMER_ERROR = "Consumer error: %s consumer call for %s command.";
     private static CommandProcessor processor;
     private static People people;
     private static Transactions transactions;
@@ -23,29 +25,10 @@ public class Main {
         processor = new CommandProcessor();
         addCommands();
 
-        String[] lines = {
-                "repay Ann",
-                "exit",
-                "2020.09.30 borrow Ann Bob 20",
-                "2020.10.01 repay Ann Bob 10",
-                "2020.10.10 borrow Bob Ann 7",
-                "2020.10.15 repay Ann Bob 8",
-                "repay Bob Ann 5",
-                "2020.09.25 balance",
-                "2020.09.30 balance open",
-                "2020.09.30 balance close",
-                "2020.10.20 balance close",
-                "balance close"
-        };
-        int index = 0;
-
         try (Scanner scanner = new Scanner(System.in)) {
             keepReading = true;
             while (keepReading) {
-                //String commandLine = scanner.nextLine();
-
-                if (index == lines.length) break;
-                String commandLine = lines[index++];
+                String commandLine = scanner.nextLine();
                 try {
                     processor.processCommandLine(commandLine);
                 } catch (IllegalArgumentException ex) {
@@ -59,61 +42,53 @@ public class Main {
 
     }
 
-    private static void addCommands() {
-        Consumer<Matcher> showHelp = matcher -> {
-            for (Command current : processor.getCommands() ) {
-                System.out.println(current.getName());
+    private static void addCommands() throws IllegalArgumentException {
+        processor.addCommand(createHelpCommand());
+        processor.addCommand(createExitCommand());
+        processor.addCommand(createBorrowCommand());
+        processor.addCommand(createRepayCommand());
+        processor.addCommand(createBalanceCommand());
+    }
+
+    private static Command createHelpCommand() throws IllegalArgumentException {
+        final String commandName = "help";
+        Consumer<CommandProcessor.Parser> consumer = parser -> {
+            checkConsumer(commandName, parser);
+            if (parser.hasDate() || parser.hasAttributes()) {
+                throw new IllegalArgumentException(AttributeParser.ILLEGAL_ARGUMENTS);
+            }
+            List<String> commands = Arrays.stream(processor.getCommands())
+                    .map(Command::getName)
+                    .sorted(String::compareTo).toList();
+            for (String current : commands) {
+                System.out.println(current);
             }
         };
-        Command helpCommand = new Command("help","help",showHelp);
-        processor.addCommand(helpCommand);
+        return new Command(commandName, consumer);
+    }
 
-        Consumer<Matcher> exitConsumer = matcher -> exit();
-        Command exitCommand = new Command("exit","exit", exitConsumer);
-        processor.addCommand(exitCommand);
-
-        //todo: rewrite with commandparser. no pattern for commands, only name.
-        //parse command line by template [date] command [arguments]. Therefore parse arguments by template.
-
-        final String datePattern = "\\d{4}\\.\\d{2}\\.\\d{2}";
-        final String namePattern = "[A-Za-z]{2,}";
-        final String amountPattern = "\\d{1,9}";
-        final String args = String.format("(%s)\\s+(%s)\\s+(%s)", namePattern, namePattern, amountPattern);
-        final String command = "(%s\\s+)?(%s)\\s+%s";
-        final String repayCommandPattern = String.format(command, datePattern, "repay", args);
-        final String borrowCommandPattern = String.format(command, datePattern, "borrow", args);
-        final Function<Matcher, Boolean> hasDate = matcher -> matcher.group(1) != null;
-        final Function<Matcher, LocalDate> getDate = matcher -> {
-            LocalDate date;
-            if (hasDate.apply(matcher)) {
-                date = parseDate(matcher.group(1));
-            } else {
-                date = LocalDate.now();
+    private static Command createExitCommand() throws IllegalArgumentException {
+        final String commandName = "exit";
+        Consumer<CommandProcessor.Parser> consumer = parser -> {
+            checkConsumer(commandName, parser);
+            if (parser.hasDate() || parser.hasAttributes()) {
+                throw new IllegalArgumentException(AttributeParser.ILLEGAL_ARGUMENTS);
             }
-            return date;
+            exit();
         };
-        final Function<Matcher, String> getFirstName = matcher -> matcher.group(3);
-        final Function<Matcher, String> getSecondName = matcher -> matcher.group(4);
-        final Function<Matcher, Integer> getAmount = matcher -> Integer.parseInt(matcher.group(5));
+        return new Command(commandName, consumer);
+    }
 
-        Consumer<Matcher> repayConsumer = matcher -> {
-            LocalDate date = getDate.apply(matcher);
-            String firstName = getFirstName.apply(matcher);
-            String secondName = getSecondName.apply(matcher);
-            int amount = getAmount.apply(matcher);
-            transactions.addTransaction(
-                    date,
-                    people.getOrCreatePerson(firstName),
-                    people.getOrCreatePerson(secondName),
-                    amount
-            );
-        };
-
-        Consumer<Matcher> borrowConsumer = matcher -> {
-            LocalDate date = getDate.apply(matcher);
-            String firstName = getFirstName.apply(matcher);
-            String secondName = getSecondName.apply(matcher);
-            int amount = getAmount.apply(matcher);
+    private static Command createBorrowCommand() throws IllegalArgumentException {
+        final String commandName = "borrow";
+        Consumer<CommandProcessor.Parser> consumer = parser -> {
+            checkConsumer(commandName, parser);
+            checkAttributes(parser);
+            LocalDate date = getDate(parser);
+            AttributeParser attrs = new AttributeParser(parser.getAttributes());
+            String firstName = attrs.getFrom();
+            String secondName = attrs.getTo();
+            int amount = attrs.getAmount();
             transactions.addTransaction(
                     date,
                     people.getOrCreatePerson(secondName),
@@ -121,17 +96,35 @@ public class Main {
                     amount
             );
         };
+        return new Command(commandName, consumer);
+    }
 
-        Command repayCommand = new Command("repay", repayCommandPattern, repayConsumer);
-        Command borrowCommand = new Command("borrow", borrowCommandPattern, borrowConsumer);
-        processor.addCommand(repayCommand);
-        processor.addCommand(borrowCommand);
+    private static Command createRepayCommand() throws IllegalArgumentException {
+        final String commandName = "repay";
+        Consumer<CommandProcessor.Parser> consumer = parser -> {
+            checkConsumer(commandName, parser);
+            checkAttributes(parser);
+            LocalDate date = getDate(parser);
+            AttributeParser attrs = new AttributeParser(parser.getAttributes());
+            String firstName = attrs.getFrom();
+            String secondName = attrs.getTo();
+            int amount = attrs.getAmount();
+            transactions.addTransaction(
+                    date,
+                    people.getOrCreatePerson(firstName),
+                    people.getOrCreatePerson(secondName),
+                    amount
+            );
+        };
+        return new Command(commandName, consumer);
+    }
 
-        String balancePattern = String.format("(%s\\s+)?(%s)(\\s+(%s))?", datePattern, "balance","open|close");
-
-        Consumer<Matcher> balanceConsumer = matcher -> {
-            LocalDate date = getDate.apply(matcher);
-            String typeText = matcher.group(4);
+    private static Command createBalanceCommand() throws IllegalArgumentException {
+        final String commandName = "balance";
+        Consumer<CommandProcessor.Parser> consumer = parser -> {
+            checkConsumer(commandName, parser);
+            LocalDate date = getDate(parser);
+            String typeText = parser.getAttributes();
             Transactions.BalanceType type;
             if (typeText == null) {
                 type = Transactions.BalanceType.CLOSE;
@@ -142,42 +135,62 @@ public class Main {
                 } else if ("close".equals(typeText)) {
                     type = Transactions.BalanceType.CLOSE;
                 } else {
-                    throw new IllegalArgumentException("unknown balance type - " + typeText);
+                    throw new IllegalArgumentException(AttributeParser.ILLEGAL_ARGUMENTS);
                 }
             }
             showBalance(transactions.getBalance(date, type));
         };
-
-        Command balanceCommand = new Command("balance", balancePattern, balanceConsumer);
-        processor.addCommand(balanceCommand);
+        return new Command(commandName, consumer);
     }
+
+
+    private static LocalDate getDate(CommandProcessor.Parser parser) throws IllegalArgumentException {
+        LocalDate date;
+        if (parser.hasDate()) {
+            date = parser.getDate();
+        } else {
+            date = LocalDate.now();
+        }
+        return date;
+    }
+
+    private static void checkConsumer(String commandName, CommandProcessor.Parser parser)
+            throws IllegalArgumentException {
+        if (!commandName.equals(parser.getCommand())) {
+            throw new IllegalArgumentException(String.format(CONSUMER_ERROR, commandName, parser.getCommand()));
+        }
+    }
+
+    private static void checkAttributes(CommandProcessor.Parser parser) {
+        if (!parser.hasAttributes()) {
+            throw new IllegalArgumentException(AttributeParser.ILLEGAL_ARGUMENTS);
+        }
+    }
+
 
     private static void showBalance(List<Transactions.Payment> balance) {
         boolean noRepayments = true;
+        List<String> payments = new ArrayList<>();
         for (Transactions.Payment p2pBalance : balance) {
-            int p1GiveP2 = p2pBalance.getAmount();
+            int p1GiveP2 = p2pBalance.amount();
             if (p1GiveP2 == 0) {
                 continue;
             }
-            Person p1 = p2pBalance.getFrom();
-            Person p2 = p2pBalance.getTo();
+            Person p1 = p2pBalance.from();
+            Person p2 = p2pBalance.to();
             if (p1GiveP2 < 0) {
                 p1GiveP2 = -p1GiveP2;
                 Person temp = p1;
                 p1 = p2;
                 p2 = temp;
             }
-            System.out.printf("%s owes %s %d%n", p2.getName(), p1.getName(), p1GiveP2);
+            payments.add(String.format("%s owes %s %d%n", p2.name(), p1.name(), p1GiveP2));
             noRepayments = false;
         }
         if (noRepayments) {
             System.out.println("No repayments");
         }
-    }
-
-
-    public static LocalDate parseDate(String yyyy_mm_dd) {
-        return LocalDate.parse(yyyy_mm_dd.stripTrailing().replace('.', '-'));
+        payments.stream().sorted(String::compareTo).forEach(System.out::print);
     }
 
     private static void exit() {
